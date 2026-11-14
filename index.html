@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shift &amp; Pay Tracker</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mu:#667085;--ac:#0f766e;--ac2:#e6f4f2;--bd:#e3e6ea;--bad:#b42318;--ok:#067647;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111418;--card:#1b2026;--tx:#f4f6f8;--mu:#c3cad4;--ac:#5eead4;--ac2:#2a4a45;--bd:#2c333b;--bad:#f97066;--ok:#47cd89}}
+:root[data-theme="dark"]{--bg:#111418;--card:#1b2026;--tx:#f4f6f8;--mu:#c3cad4;--ac:#5eead4;--ac2:#2a4a45;--bd:#2c333b;--bad:#f97066;--ok:#47cd89}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:84px}
+main{max-width:560px;margin:0 auto;padding:14px}
+h1{font-size:20px;margin:4px 0 12px}h2{font-size:16px;margin:16px 0 8px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:10px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.sp{justify-content:space-between}
+.mu{color:var(--mu);font-size:14px}.big{font-size:22px;font-weight:700}
+.bad{color:var(--bad)}.ok{color:var(--ok)}
+label{display:block;font-size:13px;color:var(--mu);margin:8px 0 3px}
+input,select{width:100%;font:inherit;padding:10px;border-radius:10px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}
+input[type=checkbox]{width:22px;height:22px}
+button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--ac);color:#fff;font-weight:600}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) main button:not(.g):not(.x){color:#042f2b}}
+:root[data-theme="dark"] main button:not(.g):not(.x){color:#042f2b}
+button.g{background:var(--ac2);color:var(--tx)}button.x{background:var(--card);border:2px solid var(--bad);color:var(--bad);padding:10px 14px;min-width:52px;min-height:48px;font-size:18px}button.x.on{background:var(--bad);color:#fff;font-size:15px}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center}.cal b{font-size:12px;color:var(--mu);font-weight:600}
+.cal button{background:var(--bg);color:var(--tx);border:1px solid var(--bd);padding:4px 0;min-height:48px;border-radius:8px;font-weight:500;font-size:15px;line-height:1.15}
+.cal button.has{background:var(--ac2);font-weight:700}.cal button.sel{outline:3px solid var(--ac)}.cal button.tdy{border-color:var(--ac)}.cal small{display:block;font-size:10px;color:var(--mu)}.cal button.e{visibility:hidden}
+button.full{width:100%;margin-top:12px}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{flex:1;background:none;color:var(--mu);border-radius:0;padding:12px 2px;font-size:13px}
+nav button.on{color:var(--ac)}
+.col{flex:1;min-width:110px}.ded{display:grid;grid-template-columns:28px 1fr 90px;gap:8px;align-items:center;margin-top:6px}
+.tag{font-size:12px;background:var(--ac2);color:var(--tx);padding:2px 8px;border-radius:99px}
+</style></head><body><main id="app"></main>
+<nav id="nav"></nav>
+<script>
+var K='dentalpay1',db=load(),tab='sum',edit=null,pend=[],calM=today().slice(0,7),selDay=null,armed=null,tm=null,notice='';
+function load(){try{var d=JSON.parse(localStorage.getItem(K));if(d&&d.offices)return d}catch(e){}return{offices:[],shifts:[],pays:[]}}
+function save(){try{localStorage.setItem(K,JSON.stringify(db))}catch(e){}}
+var $=function(i){return document.getElementById(i)};
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function m(n){return(n<0?'-':'')+'$'+Math.abs(n).toFixed(2)}
+function today(){return new Date().toLocaleDateString('en-CA')}
+function off(id){return db.offices.find(function(o){return o.id===id})}
+function wageOn(o,d){var w=+o.wage,best='';(o.raises||[]).forEach(function(r){if(r.date<=d&&r.date>=best){best=r.date;w=+r.wage}});return w}
+function dedPct(o){return(o.deds||[]).reduce(function(a,d){return a+(d.on?+d.rate:0)},0)}
+function gross(s){var o=off(s.office);return o?hw(s)*wageOn(o,s.date):0}
+function net(s){var o=off(s.office);return o?gross(s)*(1-dedPct(o)/100):0}
+function fd(d){return new Date(d+'T12:00').toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})}
+var PT={biweekly:'Paid biweekly',office:'Cheque in office',cash:'Cash (no deductions)'};
+function setTab(t){tab=t;edit=null;render()}
+function render(){
+ var t={sum:'Summary',shifts:'Shifts',pay:'Payments',off:'Offices'};
+ $('nav').innerHTML=Object.keys(t).map(function(k){return'<button class="'+(k===tab?'on':'')+'" onclick="setTab(\''+k+'\')">'+t[k]+'</button>'}).join('');
+ $('app').innerHTML=({sum:vSum,shifts:vShifts,pay:vPay,off:vOff})[tab]();
+}
+function noOff(){return'<div class="card">Add your first office on the <b>Offices</b> tab to get started.</div>'}
+function vSum(){
+ if(!db.offices.length)return'<h1>Summary</h1>'+noOff();
+ var td=today(),tot=0,h='<h1>Summary</h1>';
+ db.offices.forEach(function(o){
+  var w=db.shifts.filter(function(s){return s.office===o.id&&s.date<=td});
+  var hrs=w.reduce(function(a,s){return a+hw(s)},0),g=w.reduce(function(a,s){return a+gross(s)},0),n=w.reduce(function(a,s){return a+net(s)},0);
+  var rec=db.pays.filter(function(p){return p.office===o.id}).reduce(function(a,p){return a+ +p.amt},0),out=n-rec;tot+=out;
+  var up=db.shifts.filter(function(s){return s.office===o.id&&s.date>td}).length;
+  h+='<div class="card" style="'+tint(o.id)+'"><div class="row sp"><b>'+esc(o.name)+'</b><span class="tag">'+PT[o.pay]+'</span></div>'+
+  '<div class="row sp" style="margin-top:8px"><div><div class="mu">Still owed</div><div class="big '+(out>0.005?'bad':'ok')+'">'+m(out)+'</div></div>'+
+  '<div class="mu" style="text-align:right">'+(Math.round(hrs*100)/100)+' h worked<br>Gross '+m(g)+'<br>Expected net '+m(n)+'<br>Received '+m(rec)+'<br>'+up+' upcoming shifts</div></div></div>';
+ });
+ return h+'<div class="card row sp"><b>Total outstanding</b><span class="big '+(tot>0.005?'bad':'ok')+'">'+m(tot)+'</span></div><p class="mu">Net amounts are estimates from the deduction rates set for each office. Past-dated shifts count as worked.</p>';
+}
+function vShifts(){
+ if(!db.offices.length)return'<h1>Shifts</h1>'+noOff();
+ var td=today(),h='<h1>Shifts</h1><div class="card"><label>Office</label><select id="so">'+db.offices.map(function(o){return'<option value="'+o.id+'">'+esc(o.name)+'</option>'}).join('')+'</select>'+
+ '<div class="row"><div class="col"><label>Date</label><input type="date" id="sd" value="'+td+'"></div><div class="col"><label>Start</label><input type="time" id="st" value="09:00"></div><div class="col"><label>End</label><input type="time" id="et" value="16:00"></div></div>'+
+ '<button class="g full" onclick="addPend()">+ Add to list</button>';
+ if(pend.length){h+='<h2>Ready to save ('+pend.length+')</h2>'+pend.map(function(p,i){return'<div class="row sp"><span>'+fd(p.date)+' · '+p.hours+' h · '+esc((off(p.office)||{}).name||'')+'</span><button class="x" onclick="pend.splice('+i+',1);render()">✕</button></div>'}).join('')+'<button class="full" onclick="savePend()">Save all shifts</button>'}
+ h+='</div>';
+ var up=db.shifts.filter(function(s){return s.date>td}).sort(function(a,b){return a.date<b.date?-1:1});
+ var past=db.shifts.filter(function(s){return s.date<=td}).sort(function(a,b){return a.date<b.date?1:-1});
+ return h+calHTML()+(selDay?'<h2>'+fd(selDay)+'</h2>'+(db.shifts.filter(function(s){return s.date===selDay}).map(sRow).join('')||'<p class="mu">No shifts this day.</p>'):'')+'<h2>Upcoming</h2>'+(up.length?'<button class="g full" style="margin:0 0 8px" onclick="calUp()">📅 Add upcoming shifts to Apple Calendar</button>':'')+(up.map(sRow).join('')||'<p class="mu">None scheduled.</p>')+'<h2>Worked</h2>'+(past.map(sRow).join('')||'<p class="mu">None yet.</p>');
+}
+function sRow(s){var o=off(s.office)||{name:'?'};return'<div class="card row sp" style="'+tint(s.office)+'"><div><b>'+fd(s.date)+'</b> · '+s.hours+' h · '+(s.start||'09:00')+'<div class="mu">'+esc(o.name)+' · '+m(gross(s))+' gross · '+m(net(s))+' net</div></div>'+'<div class="row"><button class="g" style="min-height:48px;font-size:18px" onclick="calOne(\''+s.id+'\')">📅</button>'+xb('s',s.id)+'</div>'+'<input style="flex-basis:100%" placeholder="Tap to add a comment…" value="'+esc(s.note||'')+'" onchange="setNote(\''+s.id+'\',this.value)"></div>'}
+function addPend(){var st=$('st').value||'09:00',d=$('sd').value,h=parseFloat($('sh').value),o=$('so').value;if(!d||!(h>0))return;pend.push({office:o,date:d,hours:h,start:st});var dt=new Date(d+'T12:00');dt.setDate(dt.getDate()+1);render();$('sd').value=dt.toLocaleDateString('en-CA');$('so').value=o;$('st').value=st}
+function savePend(){pend.forEach(function(p){p.id=uid();db.shifts.push(p)});pend=[];save();render()}
+function setNote(id,v){var s=db.shifts.find(function(x){return x.id===id});if(s){s.note=v;save()}}
+function p2(n){return(n<10?'0':'')+n}
+function ic(d){return d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+'T'+p2(d.getHours())+p2(d.getMinutes())+'00'}
+function calUp(){
+ var td=today(),up=db.shifts.filter(function(s){return s.date>td});if(!up.length)return;
+ var L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//ShiftTracker//EN'],now=new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';
+ up.forEach(function(s){var o=off(s.office)||{name:'Work'},a=new Date(s.date+'T'+(s.start||'09:00')),b=new Date(a.getTime()+s.hours*3600000);
+  L.push('BEGIN:VEVENT','UID:'+s.id+'@shifttracker','DTSTAMP:'+now,'DTSTART:'+ic(a),'DTEND:'+ic(b),'SUMMARY:Work – '+o.name.replace(/[,;]/g,' '),'END:VEVENT')});
+ L.push('END:VCALENDAR');
+ var f=new File([L.join('\r\n')],'shifts.ics',{type:'text/calendar'});
+ if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],title:'Work shifts'}).catch(function(){})}
+ else notify('This view can’t hand a calendar file to your phone. Tell Claude in chat the dates, hours and office and it will add them to your Calendar directly.');
+}
+function notify(t){notice=t;render()}
+function xb(k,id){var a=armed===k+id;return'<button class="x'+(a?' on':'')+'" onclick="del(\''+k+'\',\''+id+'\')">'+(a?'Delete?':'✕')+'</button>'}
+function del(k,id){var key=k+id;if(armed!==key){armed=key;render();clearTimeout(tm);tm=setTimeout(function(){if(armed===key){armed=null;render()}},4000);return}
+ armed=null;if(k==='s')db.shifts=db.shifts.filter(function(s){return s.id!==id});else db.pays=db.pays.filter(function(p){return p.id!==id});save();render()}
+function mv(n){var y=+calM.slice(0,4),mo=+calM.slice(5)-1,d=new Date(y,mo+n,1);calM=d.getFullYear()+'-'+p2(d.getMonth()+1);render()}
+function pickDay(ds){var o=$('so').value;selDay=selDay===ds?null:ds;render();$('so').value=o;if(selDay)$('sd').value=ds}
+function calHTML(){
+ var y=+calM.slice(0,4),mo=+calM.slice(5)-1,first=new Date(y,mo,1),n=new Date(y,mo+1,0).getDate(),td=today();
+ var ms=db.shifts.filter(function(s){return s.date.slice(0,7)===calM}),mh=Math.round(ms.reduce(function(a,s){return a+hw(s)},0)*100)/100;
+ var h=(notice?'<div class="card">'+esc(notice)+'</div>':'')+'<div class="card"><div class="row sp"><button class="g" style="min-width:56px;font-size:20px" onclick="mv(-1)">‹</button><b>'+first.toLocaleDateString('en-CA',{month:'long',year:'numeric'})+'</b><button class="g" style="min-width:56px;font-size:20px" onclick="mv(1)">›</button></div><div class="cal" style="margin-top:8px">'+'SMTWTFS'.split('').map(function(c){return'<b>'+c+'</b>'}).join('');
+ for(var i=0;i<first.getDay();i++)h+='<button class="g e"></button>';
+ for(var d=1;d<=n;d++){var ds=calM+'-'+p2(d),dl=db.shifts.filter(function(s){return s.date===ds}),hr=dl.reduce(function(a,s){return a+hw(s)},0);
+  h+='<button class="g'+(hr?' has':'')+(ds===selDay?' sel':'')+(ds===td?' tdy':'')+'" style="'+dayBg(dl)+'" onclick="pickDay(\''+ds+'\')">'+d+dayTxt(dl)+'</button>'}
+ return h+'</div>'+legend()+'<div class="mu" style="margin-top:8px">'+ms.length+' shifts · '+mh+' h this month. Tap a day to see or add shifts.</div></div>'}
+function vPay(){
+ if(!db.offices.length)return'<h1>Payments</h1>'+noOff();
+ var h='<h1>Payments</h1><div class="card"><label>Office</label><select id="po">'+db.offices.map(function(o){return'<option value="'+o.id+'">'+esc(o.name)+'</option>'}).join('')+'</select>'+
+ '<div class="row"><div class="col"><label>Date received</label><input type="date" id="pd" value="'+today()+'"></div><div class="col"><label>Amount ($)</label><input type="number" id="pa" step="0.01" inputmode="decimal"></div></div>'+
+ '<label>Note (optional)</label><input id="pn" placeholder="e.g. cheque #, pay period"><button class="full" onclick="addPay()">Save payment</button></div>';
+ var l=db.pays.slice().sort(function(a,b){return a.date<b.date?1:-1});
+ return h+'<h2>History</h2>'+(l.map(function(p){return'<div class="card row sp"><div><b>'+m(+p.amt)+'</b> · '+fd(p.date)+'<div class="mu">'+esc((off(p.office)||{name:'?'}).name)+(p.note?' · '+esc(p.note):'')+'</div></div>'+xb('p',p.id)+'</div>'}).join('')||'<p class="mu">No payments logged.</p>');
+}
+function addPay(){var a=parseFloat($('pa').value);if(!(a>0))return;db.pays.push({id:uid(),office:$('po').value,date:$('pd').value,amt:a,note:$('pn').value});save();render()}
+
+function vOff(){
+ if(edit)return offForm();
+ return'<h1>Offices</h1>'+db.offices.map(function(o){return'<div class="card row sp" style="'+tint(o.id)+'" onclick="edit=\''+o.id+'\';render()"><div><b>'+esc(o.name)+'</b><div class="mu">'+m(wageOn(o,today()))+'/h · '+PT[o.pay]+' · '+dedPct(o)+'% deducted</div></div><span class="mu">Edit ›</span></div>'}).join('')+'<button class="full" onclick="newOff()">+ Add office</button>';
+}
+function newOff(){var o={id:uid(),name:'',wage:'',pay:'biweekly',raises:[],deds:[{n:'Income tax (fed + BC)',rate:15,on:true},{n:'CPP',rate:5.95,on:true},{n:'EI',rate:1.63,on:true},{n:'',rate:0,on:false}],isNew:true};db.offices.push(o);edit=o.id;render()}
+function offForm(){
+ var o=off(edit);
+ var h='<h1>'+(o.isNew?'New office':'Edit office')+'</h1><div class="card"><label>Office name</label><input id="on" value="'+esc(o.name)+'">'+
+ '<label>Hourly wage ($)</label><input id="ow" type="number" step="0.01" inputmode="decimal" value="'+o.wage+'">'+
+ '<label>How she is paid</label><select id="op" onchange="payChg()">'+Object.keys(PT).map(function(k){return'<option value="'+k+'"'+(k===o.pay?' selected':'')+'>'+PT[k]+'</option>'}).join('')+'</select>'+
+ '<div class="row" style="margin-top:12px;flex-wrap:nowrap"><input type="checkbox" id="ps"'+(o.perShift?' checked':'')+'><span>Paid per shift (each shift gets its own payment)</span></div><label>Office colour</label>'+swHTML(o)+'<div style="display:none"><label>Pay period</label><select id="pp">'+[['biweekly','Every 2 weeks'],['weekly','Every week'],['monthly','Once a month']].map(function(x){return'<option value="'+x[0]+'"'+(x[0]===(o.per||'biweekly')?' selected':'')+'>'+x[1]+'</option>'}).join('')+'</select><label>A date a pay period started (any past one, not needed for monthly)</label><input type="date" id="pa0" value="'+(o.anchor||'')+'"></div>'+
+ '<h2>Deductions taken off</h2><div class="mu">Tick what this office removes and adjust the %. Check her pay stub for the real rates.</div>';
+ o.deds.forEach(function(d,i){h+='<div class="ded"><input type="checkbox" id="dc'+i+'"'+(d.on?' checked':'')+'>'+(i<3?'<span>'+esc(d.n)+'</span>':'<input id="dn'+i+'" placeholder="Other (e.g. benefits)" value="'+esc(d.n)+'">')+'<input id="dr'+i+'" type="number" step="0.01" value="'+d.rate+'" inputmode="decimal"></div>'});
+ h+='</div>';
+ if(!o.isNew){h+='<div class="card"><b>Pay raises</b>'+(o.raises||[]).map(function(r,i){return'<div class="row sp"><span>'+fd(r.date)+' → '+m(+r.wage)+'/h</span><button class="x" onclick="delRaise('+i+')">✕</button></div>'}).join('')+
+  '<div class="row"><div class="col"><label>Effective date</label><input type="date" id="rd" value="'+today()+'"></div><div class="col"><label>New wage</label><input id="rw" type="number" step="0.01" inputmode="decimal"></div></div><button class="g full" onclick="addRaise()">+ Add raise</button></div>'}
+ h+='<button class="full" onclick="saveOff()">Save office</button><button class="g full" onclick="cancelOff()">Cancel</button>';
+ if(!o.isNew)h+='<button class="x full" onclick="if(this.dataset.a){delOff()}else{this.dataset.a=1;this.textContent=\'Tap again to confirm delete\'}">Delete office and its data</button>';
+ return h;
+}
+function payChg(){if($('op').value==='cash'){off(edit).deds.forEach(function(_,i){$('dc'+i).checked=false})}}
+function collect(){var o=off(edit);o.name=$('on').value.trim()||'Office';o.wage=parseFloat($('ow').value)||0;o.color=$('oc').value;o.perShift=$('ps').checked;o.pay=$('op').value;o.per=$('pp').value;o.anchor=$('pa0').value;o.deds.forEach(function(d,i){d.on=$('dc'+i).checked;d.rate=parseFloat($('dr'+i).value)||0;if(i>=3)d.n=$('dn'+i).value})}
+function saveOff(){collect();delete off(edit).isNew;save();edit=null;render()}
+function cancelOff(){var o=off(edit);if(o&&o.isNew)db.offices=db.offices.filter(function(x){return x!==o});edit=null;render()}
+function addRaise(){var w=parseFloat($('rw').value);if(!(w>0))return;collect();var o=off(edit);o.raises.push({date:$('rd').value,wage:w});save();render()}
+function delRaise(i){collect();off(edit).raises.splice(i,1);save();render()}
+function delOff(){{var id=edit;db.offices=db.offices.filter(function(o){return o.id!==id});db.shifts=db.shifts.filter(function(s){return s.office!==id});db.pays=db.pays.filter(function(p){return p.office!==id});save();edit=null;render()}}
+function d2n(s){var a=s.split('-');return Date.UTC(+a[0],+a[1]-1,+a[2])/864e5}
+function n2d(n){return new Date(n*864e5).toISOString().slice(0,10)}
+function short(d){return new Date(d+'T12:00').toLocaleDateString('en-CA',{month:'short',day:'numeric'})}
+function perOf(o,date){var p=o.per||'biweekly';if(p==='monthly'){return{s:date.slice(0,7)+'-01',e:n2d(Date.UTC(+date.slice(0,4),+date.slice(5,7),0)/864e5)}}
+ var len=p==='weekly'?7:14,a=d2n(o.anchor||'2024-01-01'),k=Math.floor((d2n(date)-a)/len);return{s:n2d(a+k*len),e:n2d(a+k*len+len-1)}}
+function vPay(){
+ if(!db.offices.length)return'<h1>Pay periods</h1>'+noOff();
+ var td=today(),h='<h1>Pay periods</h1><p class="mu">Shifts drop into pay periods automatically. Tap Paid when the money arrives (change the amount if it differs).</p>';
+ db.offices.forEach(function(o){
+  var per={};db.shifts.filter(function(s){return s.office===o.id&&s.date<=td}).forEach(function(s){var p=perOf(o,s.date),r=per[p.s]=per[p.s]||{p:p,n:0,hrs:0,net:0};r.n++;r.hrs+=s.hours;r.net+=net(s)});
+  var keys=Object.keys(per).sort().reverse();h+='<h2>'+esc(o.name)+'</h2>';
+  if(!keys.length){h+='<p class="mu">No worked shifts yet.</p>';return}
+  keys.forEach(function(k){var r=per[k],got=db.pays.filter(function(p){return p.office===o.id&&p.period===k}).reduce(function(a,p){return a+ +p.amt},0),bal=r.net-got;
+   h+='<div class="card"><div class="row sp"><b>'+short(r.p.s)+' – '+short(r.p.e)+'</b>'+(bal<=0.005?'<span class="tag">✓ Paid</span>':'')+'</div><div class="mu">'+r.n+' shifts · '+r.hrs+' h · net '+m(r.net)+(got?' · received '+m(got):'')+'</div>';
+   if(bal>0.005)h+='<div class="row" style="margin-top:8px;flex-wrap:nowrap"><input id="a'+o.id+k+'" type="number" step="0.01" inputmode="decimal" value="'+bal.toFixed(2)+'" style="flex:1;min-width:0"><button style="min-height:48px;min-width:90px" onclick="paid(\''+o.id+'\',\''+k+'\')">Paid</button></div>';
+   h+='</div>'});
+ });
+ var l=db.pays.slice().sort(function(a,b){return a.date<b.date?1:-1});
+ return h+'<h2>Payment history</h2>'+(l.map(function(p){return'<div class="card row sp"><div><b>'+m(+p.amt)+'</b> · '+fd(p.date)+'<div class="mu">'+esc((off(p.office)||{name:'?'}).name)+(p.period?' · period of '+short(p.period):'')+'</div></div>'+xb('p',p.id)+'</div>'}).join('')||'<p class="mu">No payments logged.</p>');
+}
+function paid(oid,k){var a=parseFloat($('a'+oid+k).value);if(!(a>0))return;db.pays.push({id:uid(),office:oid,period:k,date:today(),amt:a});save();render()}
+function buildIcs(list){var L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//ShiftTracker//EN'],now=new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';
+ list.forEach(function(s){var o=off(s.office)||{name:'Work'},a=new Date(s.date+'T'+(s.start||'09:00')),b=new Date(a.getTime()+s.hours*3600000);
+  L.push('BEGIN:VEVENT','UID:'+s.id+'@shifttracker','DTSTAMP:'+now,'DTSTART:'+ic(a),'DTEND:'+ic(b),'SUMMARY:Work – '+o.name.replace(/[,;]/g,' '),'END:VEVENT')});
+ L.push('END:VCALENDAR');return L.join('\r\n')}
+function sendIcs(list){var f=new File([buildIcs(list)],'shifts.ics',{type:'text/calendar'});
+ if(navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f],title:'Work shifts'}).catch(function(){});
+ else if(window.top===window){location.href=URL.createObjectURL(f)}
+ else notify('This view can’t send calendar files. Open the page directly in Safari, or ask Claude in chat to add the shifts to your Calendar.')}
+function calUp(){var td=today(),up=db.shifts.filter(function(s){return s.date>td});if(up.length)sendIcs(up)}
+function calOne(id){var s=db.shifts.find(function(x){return x.id===id});if(s)sendIcs([s])}
+var sel={};
+function unpaid(oid){var td=today();return db.shifts.filter(function(s){return s.office===oid&&s.date<=td&&!s.payId}).sort(function(a,b){return a.date<b.date?-1:1})}
+function tg(id){if(sel[id])delete sel[id];else sel[id]=1;render()}
+function selAll(oid){var l=unpaid(oid),all=l.every(function(s){return sel[s.id]});l.forEach(function(s){if(all)delete sel[s.id];else sel[s.id]=1});render()}
+function vPay(){
+ if(!db.offices.length)return'<h1>Payments</h1>'+noOff();
+ var h='<h1>Payments</h1><p class="mu">Tap the shifts that were paid together, check the amount, then Record payment.</p>';
+ db.offices.forEach(function(o){
+  var l=unpaid(o.id),ch=l.filter(function(s){return sel[s.id]}),exp=ch.reduce(function(a,s){return a+net(s)},0),owed=l.reduce(function(a,s){return a+net(s)},0);
+  h+='<div class="card" style="'+tint(o.id)+'"><div class="row sp"><b>'+esc(o.name)+'</b><span class="mu">Unpaid '+m(owed)+'</span></div>';
+  if(!l.length)h+='<p class="mu">All worked shifts are paid ✓</p>';
+  else{h+='<button class="g full" style="margin-top:8px" onclick="selAll(\''+o.id+'\')">Select all / none</button>'+l.map(function(s){var on=sel[s.id];return'<button class="g full" style="margin-top:6px;text-align:left;display:flex;justify-content:space-between;min-height:52px;'+(on?'outline:3px solid var(--ac);':'')+'" onclick="tg(\''+s.id+'\')"><span>'+(on?'✓ ':'')+fd(s.date)+' · '+hw(s)+' h'+(s.actual==null?' (planned)':'')+'</span><span>'+m(net(s))+'</span></button>'}).join('');
+   if(ch.length)h+='<div style="margin-top:12px">'+ch.map(function(s){return'<div class="row" style="flex-wrap:nowrap;margin-bottom:6px"><span style="flex:1">'+fd(s.date)+' · hours worked</span><input type="number" step="0.25" inputmode="decimal" style="width:96px" placeholder="'+s.hours+'" value="'+(s.actual!=null?s.actual:'')+'" onchange="setAct(\''+s.id+'\',this.value)"></div>'}).join('')+'<div class="mu">'+ch.length+' shifts selected · expected '+m(exp)+'</div><div class="row" style="flex-wrap:nowrap;margin-top:6px"><input id="amt'+o.id+'" type="number" step="0.01" inputmode="decimal" value="'+exp.toFixed(2)+'" style="flex:1;min-width:0"><button id="rp'+o.id+'" style="min-height:48px" onclick="recPay(\''+o.id+'\')">Record payment</button></div></div>'}
+  h+='</div>'});
+ var l=db.pays.slice().sort(function(a,b){return a.date<b.date?1:-1});
+ return h+'<h2>Payment history</h2>'+(l.map(function(p){var ds=db.shifts.filter(function(s){return s.payId===p.id}).map(function(s){return short(s.date)}).join(', ');return'<div class="card row sp" style="flex-wrap:nowrap;'+tint(p.office)+'"><div style="flex:1;min-width:0"><b>'+(ds||'Payment')+'</b><div class="mu">'+m(+p.amt)+' received · recorded '+short(p.date)+' · '+esc((off(p.office)||{name:'?'}).name)+'</div></div><div class="row" style="flex-shrink:0;flex-wrap:nowrap"><button class="g" style="min-height:48px;font-size:18px" onclick="editP(\''+p.id+'\')">✏️</button>'+xb('p',p.id)+'</div>'+'</div>'}).join('')||'<p class="mu">No payments logged.</p>');
+}
+function recPay(oid){var a=parseFloat($('amt'+oid).value),l=unpaid(oid).filter(function(s){return sel[s.id]});if(!l.length||!(a>0))return;
+ var id=uid();db.pays.push({id:id,office:oid,date:today(),amt:a});l.forEach(function(s){s.payId=id;delete sel[s.id]});save();render()}
+function del(k,id){var key=k+id;if(armed!==key){armed=key;render();clearTimeout(tm);tm=setTimeout(function(){if(armed===key){armed=null;render()}},4000);return}
+ armed=null;if(k==='s')db.shifts=db.shifts.filter(function(s){return s.id!==id});else{db.shifts.forEach(function(s){if(s.payId===id)delete s.payId});db.pays=db.pays.filter(function(p){return p.id!==id})}save();render()}
+var PAL=['#0f766e','#2563eb','#c026d3','#ea580c','#ca8a04','#dc2626','#7c3aed','#475569'];
+function colOf(id){var o=off(id);return(o&&o.color)||PAL[Math.max(0,db.offices.indexOf(o))%PAL.length]}
+function tint(id){var c=colOf(id);return'border-left:8px solid '+c+';background:linear-gradient('+c+'26,'+c+'26),var(--card)'}
+function swHTML(o){var cur=colOf(o.id);return'<input type="hidden" id="oc" value="'+cur+'"><div id="sw" class="row">'+PAL.map(function(c){return'<button type="button" style="background:'+c+';width:44px;height:44px;border-radius:50%;padding:0;'+(c===cur?'outline:3px solid var(--tx);':'')+'" onclick="setCol(this,\''+c+'\')"></button>'}).join('')+'</div>'}
+function setCol(b,c){$('oc').value=c;[].forEach.call(document.querySelectorAll('#sw button'),function(x){x.style.outline=''});b.style.outline='3px solid var(--tx)'}
+function hw(s){return s.actual!=null?s.actual:s.hours}
+function ft(t){var a=t.split(':'),h=+a[0],ap=h>=12?'pm':'am';h=h%12||12;return h+(a[1]==='00'?'':':'+a[1])+ap}
+function dayBg(dl){if(!dl.length)return'';var cs=[];dl.forEach(function(s){var c=colOf(s.office);if(cs.indexOf(c)<0)cs.push(c)});var n=cs.length;
+ return'background:linear-gradient(90deg,'+cs.map(function(c,i){return c+'70 '+(i*100/n)+'% '+((i+1)*100/n)+'%'}).join(',')+'),var(--bg)'}
+function setAct(id,v){var s=db.shifts.find(function(x){return x.id===id});if(!s)return;var n=parseFloat(v);if(v===''||isNaN(n))delete s.actual;else s.actual=n;save();render()}
+function addPend(){var st=$('st').value,en=$('et').value,d=$('sd').value,o=$('so').value;if(!d||!st||!en)return;var a=st.split(':'),b=en.split(':'),h=((+b[0]*60+ +b[1])-(+a[0]*60+ +a[1]))/60;if(h<=0)return;
+ pend.push({office:o,date:d,hours:Math.round(h*100)/100,start:st,end:en});var dt=new Date(d+'T12:00');dt.setDate(dt.getDate()+1);render();$('sd').value=dt.toLocaleDateString('en-CA');$('so').value=o;$('st').value=st;$('et').value=en}
+function sRow(s){var o=off(s.office)||{name:'?'},past=s.date<=today();
+ return'<div class="card row sp" style="'+tint(s.office)+'"><div><b>'+fd(s.date)+'</b> · '+(s.end?ft(s.start)+'–'+ft(s.end):ft(s.start||'09:00'))+' · '+s.hours+' h planned'+(past&&s.actual==null?' <span class="tag">Enter hours</span>':'')+'<div class="mu">'+esc(o.name)+' · '+m(gross(s))+' gross · '+m(net(s))+' net'+(past&&s.actual==null?' (est.)':'')+'</div></div>'+
+ '<div class="row"><button class="g" style="min-height:48px;font-size:18px" onclick="calOne(\''+s.id+'\')">📅</button>'+xb('s',s.id)+'</div>'+
+ (past&&s.actual==null?'<button class="g" style="flex-basis:100%;min-height:44px" onclick="okH(\''+s.id+'\')">✓ Worked '+s.hours+' h as planned</button>':'')+(past?'<div class="row" style="flex-basis:100%;flex-wrap:nowrap"><span style="white-space:nowrap">Hours worked</span><input type="number" step="0.25" inputmode="decimal" placeholder="'+s.hours+'" value="'+(s.actual!=null?s.actual:'')+'" onchange="setAct(\''+s.id+'\',this.value)"></div>':'')+
+ '<input style="flex-basis:100%" placeholder="Tap to add a comment…" value="'+esc(s.note||'')+'" onchange="setNote(\''+s.id+'\',this.value)"></div>'}
+var lastO='',lastSt='09:00',lastEn='16:00';
+function render(){var t={sum:'Summary',shifts:'Calendar',pay:'Payments',off:'Offices'};
+ $('nav').innerHTML=Object.keys(t).map(function(k){return'<button class="'+(k===tab?'on':'')+'" onclick="setTab(\''+k+'\')">'+t[k]+'</button>'}).join('');
+ $('app').innerHTML=({sum:vSum,shifts:vShifts,pay:vPay,off:vOff})[tab]()+(tab==='shifts'&&selDay?modal():'')}
+function vShifts(){
+ if(!db.offices.length)return'<h1>Calendar</h1>'+noOff();
+ var td=today(),w=db.shifts.filter(function(s){return s.date<=td&&!s.payId}).sort(function(a,b){return a.date<b.date?-1:1});
+ return'<h1>Calendar</h1>'+calHTML()+'<button class="g full" style="margin:0 0 4px" onclick="calUp()">📅 Add upcoming shifts to Apple Calendar</button><h2>Worked – not yet paid</h2>'+(w.map(sRow).join('')||'<p class="mu">Nothing waiting for payment.</p>')}
+function pickDay(ds){selDay=ds;render()}
+function closeDay(){selDay=null;render()}
+function addDay(){var st=$('st').value,en=$('et').value,o=$('so').value;if(!st||!en)return;var a=st.split(':'),b=en.split(':'),h=((+b[0]*60+ +b[1])-(+a[0]*60+ +a[1]))/60;if(h<=0)return;
+ lastO=o;lastSt=st;lastEn=en;db.shifts.push({id:uid(),office:o,date:selDay,hours:Math.round(h*100)/100,start:st,end:en});save();render()}
+function modal(){
+ var h='<div style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20;display:flex;align-items:flex-end;justify-content:center" onclick="if(event.target===this)closeDay()"><div style="background:var(--bg);color:var(--tx);width:100%;max-width:560px;max-height:90%;overflow:auto;border-radius:18px 18px 0 0;padding:14px 14px calc(18px + env(safe-area-inset-bottom,0px))"><div class="row sp" style="margin-bottom:8px"><b style="font-size:18px">'+fd(selDay)+'</b><button style="min-height:48px;min-width:80px" onclick="closeDay()">Done</button></div>';
+ h+=db.shifts.filter(function(s){return s.date===selDay}).map(sRow).join('')||'<p class="mu">No shifts this day yet.</p>';
+ h+='<div class="card"><b>Add a shift</b><label>Office</label><select id="so">'+db.offices.map(function(o){return'<option value="'+o.id+'"'+(o.id===lastO?' selected':'')+'>'+esc(o.name)+'</option>'}).join('')+'</select><div class="row"><div class="col"><label>Start</label><input type="time" id="st" value="'+lastSt+'"></div><div class="col"><label>End</label><input type="time" id="et" value="'+lastEn+'"></div></div><button class="full" onclick="addDay()">Add shift</button></div></div></div>';
+ return h}
+var editPay=null,esel={};
+function editP(id){editPay=id;esel={};db.shifts.forEach(function(s){if(s.payId===id)esel[s.id]=1});render();window.scrollTo(0,0)}
+function tgE(id){var a=$('ea').value,d=$('ed').value;if(esel[id])delete esel[id];else esel[id]=1;render();$('ea').value=a;$('ed').value=d}
+function cancelEdit(){editPay=null;render()}
+function savePay(){var p=db.pays.find(function(x){return x.id===editPay}),a=parseFloat($('ea').value);if(!p||!(a>0))return;
+ p.amt=a;p.date=$('ed').value||p.date;
+ db.shifts.forEach(function(s){if(s.payId===p.id&&!esel[s.id])delete s.payId;else if(esel[s.id]&&s.office===p.office&&(!s.payId||s.payId===p.id))s.payId=p.id});
+ save();editPay=null;render()}
+function editForm(){var p=db.pays.find(function(x){return x.id===editPay});if(!p)return'';var td=today(),o=off(p.office)||{name:'?'};
+ var l=db.shifts.filter(function(s){return s.office===p.office&&s.date<=td&&(s.payId===p.id||!s.payId)}).sort(function(a,b){return a.date<b.date?-1:1});
+ return'<div class="card" style="'+tint(p.office)+'"><b>Edit payment – '+esc(o.name)+'</b><div class="row"><div class="col"><label>Amount received ($)</label><input id="ea" type="number" step="0.01" inputmode="decimal" value="'+p.amt+'"></div><div class="col"><label>Date money received (for records)</label><input id="ed" type="date" value="'+p.date+'"></div></div><label>Shifts covered by this payment (tap to add or remove)</label>'+
+  l.map(function(s){var on=esel[s.id];return'<button class="g full" style="margin-top:6px;text-align:left;display:flex;justify-content:space-between;min-height:52px;'+(on?'outline:3px solid var(--ac);':'')+'" onclick="tgE(\''+s.id+'\')"><span>'+(on?'✓ ':'')+fd(s.date)+' · '+hw(s)+' h</span><span>'+m(net(s))+'</span></button>'+(on?'<div class="row" style="flex-wrap:nowrap;margin-top:6px"><span style="flex:1">Hours worked</span><input type="number" step="0.25" inputmode="decimal" style="width:96px" placeholder="'+s.hours+'" value="'+(s.actual!=null?s.actual:'')+'" onchange="setActE(\''+s.id+'\',this.value)"></div>':'')}).join('')+
+  '<div class="mu" style="margin-top:8px">Expected from the shifts selected above: '+m(db.shifts.filter(function(s){return esel[s.id]}).reduce(function(a,s){return a+net(s)},0))+'</div><button class="full" onclick="savePay()">Save changes</button><button class="g full" onclick="cancelEdit()">Cancel</button></div>'}
+var _vPay=vPay;vPay=function(){return(editPay?editForm():'')+_vPay()};
+function addDay(){var st=$('st').value,en=$('et').value,o=$('so').value;if(!st||!en)return;var a=st.split(':'),b=en.split(':'),h=((+b[0]*60+ +b[1])-(+a[0]*60+ +a[1]))/60;if(h<=0)return;
+ lastO=o;lastSt=st;lastEn=en;db.shifts.push({id:uid(),office:o,date:selDay,hours:Math.round(h*100)/100,start:st,end:en});save();selDay=null;render()}
+function modal(){
+ var h='<div style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20;display:flex;align-items:flex-end;justify-content:center" onclick="if(event.target===this)closeDay()"><div style="background:var(--bg);color:var(--tx);width:100%;max-width:560px;max-height:90%;overflow:auto;border-radius:18px 18px 0 0;padding:14px 14px calc(18px + env(safe-area-inset-bottom,0px))"><b style="font-size:18px;display:block;margin-bottom:8px">'+fd(selDay)+'</b>';
+ h+=db.shifts.filter(function(s){return s.date===selDay}).map(sRow).join('')||'<p class="mu">No shifts this day yet.</p>';
+ h+='<div class="card"><b>Add a shift</b><label>Office</label><select id="so">'+db.offices.map(function(o){return'<option value="'+o.id+'"'+(o.id===lastO?' selected':'')+'>'+esc(o.name)+'</option>'}).join('')+'</select><div class="row"><div class="col"><label>Start</label><input type="time" id="st" value="'+lastSt+'"></div><div class="col"><label>End</label><input type="time" id="et" value="'+lastEn+'"></div></div></div>'+
+  '<div class="row" style="position:sticky;bottom:0;background:var(--bg);padding-top:8px;flex-wrap:nowrap"><button id="cf" style="flex:2;min-height:52px" onclick="addDay()">Confirm</button><button class="g" style="flex:1;min-height:52px" onclick="closeDay()">Close</button></div></div></div>';
+ return h}
+var dup='',pw='';
+function warnAt(btnId,msg,label){var b=$(btnId),row=b.parentNode,w=document.createElement('div');w.className='card';w.style.cssText='border:2px solid var(--bad);margin-top:8px;width:100%';w.textContent='⚠️ '+msg;row.parentNode.insertBefore(w,row);b.textContent=label}
+function addDay(){var st=$('st').value,en=$('et').value,o=$('so').value;if(!st||!en)return;var a=st.split(':'),b=en.split(':'),h=((+b[0]*60+ +b[1])-(+a[0]*60+ +a[1]))/60;if(h<=0)return;
+ var ex=db.shifts.filter(function(s){return s.date===selDay}),key=selDay+o+st+en;
+ if(ex.length&&dup!==key){dup=key;var ov=ex.some(function(s){return s.end&&st<s.end&&en>s.start}),list=ex.map(function(s){return(off(s.office)||{name:'?'}).name+' '+(s.end?ft(s.start)+'–'+ft(s.end):ft(s.start))}).join(', ');
+  warnAt('cf','You already have a shift on this day ('+list+').'+(ov?' The times overlap.':'')+' Tap again to add it anyway.','Add anyway');return}
+ dup='';lastO=o;lastSt=st;lastEn=en;db.shifts.push({id:uid(),office:o,date:selDay,hours:Math.round(h*100)/100,start:st,end:en});save();selDay=null;render()}
+function recPay(oid){var a=parseFloat($('amt'+oid).value),l=unpaid(oid).filter(function(s){return sel[s.id]});if(!l.length||!(a>0))return;
+ var exp=l.reduce(function(x,s){return x+net(s)},0),msgs=[],key=oid+a+l.length;
+ if(db.pays.some(function(p){return p.office===oid&&p.date===today()}))msgs.push('A payment for this office was already recorded today.');
+ if(Math.abs(a-exp)>0.5)msgs.push('The amount ('+m(a)+') differs from the expected '+m(exp)+'.');
+ if(msgs.length&&pw!==key){pw=key;warnAt('rp'+oid,msgs.join(' ')+' Tap again to record it anyway.','Record anyway');return}
+ pw='';var id=uid();db.pays.push({id:id,office:oid,date:today(),amt:a});l.forEach(function(s){s.payId=id;delete sel[s.id];if(s.actual==null)s.actual=s.hours});save();render()}
+function setActE(id,v){var a=$('ea').value,d=$('ed').value,s=db.shifts.find(function(x){return x.id===id});if(s){var n=parseFloat(v);if(v===''||isNaN(n))delete s.actual;else s.actual=n;save()}render();$('ea').value=a;$('ed').value=d}
+var _sRow=sRow;sRow=function(s){var h=_sRow(s);if(armed==='s'+s.id&&s.payId){var p=db.pays.find(function(x){return x.id===s.payId}),n=db.shifts.filter(function(x){return x.payId===s.payId}).length;
+  h=h.replace('<input style="flex-basis:100%"','<div style="flex-basis:100%;color:var(--bad);font-weight:600">⚠️ This shift is already recorded as paid'+(p?' ('+m(+p.amt)+(n>1?', shared with '+(n-1)+' other shift'+(n>2?'s':''):'')+')':'')+'. Tap Delete? again to remove it from that payment'+(n>1?'.':' and delete the payment.')+'</div><input style="flex-basis:100%"')}return h};
+function del(k,id){var key=k+id;if(armed!==key){armed=key;render();clearTimeout(tm);tm=setTimeout(function(){if(armed===key){armed=null;render()}},6000);return}
+ armed=null;
+ if(k==='s'){var s=db.shifts.find(function(x){return x.id===id}),pid=s&&s.payId;db.shifts=db.shifts.filter(function(x){return x.id!==id});if(pid&&!db.shifts.some(function(x){return x.payId===pid}))db.pays=db.pays.filter(function(p){return p.id!==pid})}
+ else{db.shifts.forEach(function(s){if(s.payId===id)delete s.payId});db.pays=db.pays.filter(function(p){return p.id!==id})}save();render()}
+function codes(){var map={},used={};db.offices.forEach(function(o){var w=o.name.trim().split(/\s+/).filter(Boolean),c=w.length>1?w.map(function(x){return x[0]}).join('').slice(0,3):(w[0]?w[0].slice(0,3):'?');c=c.toUpperCase();var b=c,i=2;while(used[c])c=b.slice(0,2)+(i++);used[c]=1;map[o.id]=c});return map}
+function ct(t){var a=t.split(':'),h=(+a[0])%12||12;return h+(a[1]==='00'?'':a[1])}
+function dayTxt(dl){if(!dl.length)return'<small>&nbsp;</small>';var cm=codes();
+ return dl.slice().sort(function(a,b){return(a.start||'')<(b.start||'')?-1:1}).map(function(s){var st=s.start||'09:00';return'<small style="color:var(--tx);line-height:1.15;margin-top:2px"><b>'+esc(cm[s.office]||'?')+'</b><br>'+ct(st)+(s.end?'-'+ct(s.end):'')+'</small>'}).join('')}
+function legend(){if(!db.offices.length)return'';var cm=codes();
+ return'<div class="row" style="margin-top:10px">'+db.offices.map(function(o){return'<span style="'+tint(o.id)+';border-radius:8px;padding:5px 10px;font-size:14px"><b>'+esc(cm[o.id])+'</b> = '+esc(o.name)+'</span>'}).join('')+'</div>'}
+function ct(t){var a=t.split(':'),h=(+a[0])%12||12;return h+(a[1]==='00'?'':':'+a[1])}
+function dayTxt(dl){if(!dl.length)return'<small>&nbsp;</small>';var cm=codes();
+ return dl.slice().sort(function(a,b){return(a.start||'')<(b.start||'')?-1:1}).map(function(s){var st=s.start||'09:00';return'<small style="color:var(--tx);font-size:9.5px;line-height:1.15;margin-top:2px"><b>'+esc(cm[s.office]||'?')+'</b><br>'+ct(st)+(s.end?'-'+ct(s.end):'')+'</small>'}).join('')}
+var exYear=today().slice(0,4),exMsg='',xlP=null;
+function r2(n){return Math.round(n*100)/100}
+function exNote(t){exMsg=t;render()}
+function loadX(cb){if(window.XLSX)return cb();if(xlP){xlP.push(cb);return}xlP=[cb];var sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';sc.onload=sc.onerror=function(){var q=xlP;xlP=null;q.forEach(function(f){f()})};document.head.appendChild(sc)}
+setTimeout(function(){loadX(function(){})},1500);
+function exportCard(){if(!db.shifts.length)return'';var ys={},cur=today().slice(0,4);db.shifts.forEach(function(s){ys[s.date.slice(0,4)]=1});ys[cur]=1;var yl=Object.keys(ys).sort().reverse();if(exYear!=='all'&&!ys[exYear])exYear=cur;
+ return'<div class="card"><b>Export for taxes</b><div class="mu">Worked shifts, deductions and payments as a spreadsheet or PDF.</div><label>Year</label><select onchange="exYear=this.value;exMsg=\'\'"><option value="all"'+(exYear==='all'?' selected':'')+'>All years</option>'+yl.map(function(y){return'<option'+(y===exYear?' selected':'')+'>'+y+'</option>'}).join('')+'</select><div class="row" style="flex-wrap:nowrap;margin-top:10px"><button style="flex:1;min-height:52px" onclick="exportX()">Excel (.xlsx)</button><button class="g" style="flex:1;min-height:52px" onclick="exportP()">PDF</button></div>'+(exMsg?'<div class="mu" style="margin-top:8px">'+esc(exMsg)+'</div>':'')+'</div>'}
+var _vSum=vSum;vSum=function(){return _vSum()+exportCard()};
+function exData(){var td=today(),y=exYear,inY=function(d){return y==='all'||d.slice(0,4)===y};
+ var sh=db.shifts.filter(function(s){return s.date<=td&&inY(s.date)}).sort(function(a,b){return a.date<b.date?-1:1});
+ function dsp(s){var o=off(s.office),g=gross(s),a={t:0,c:0,e:0,o:0};if(o)(o.deds||[]).forEach(function(d,i){if(!d.on)return;var v=g*(+d.rate)/100;if(i===0)a.t+=v;else if(i===1)a.c+=v;else if(i===2)a.e+=v;else a.o+=v});return a}
+ var R=[['Date','Office','Time','Hours worked','Hourly wage','Gross pay','Income tax','CPP','EI','Other deductions','Net pay','Paid?','Payment recorded','Comment']],T=[0,0,0,0,0,0,0],per={};
+ sh.forEach(function(s){var o=off(s.office)||{name:'?'},a=dsp(s),g=gross(s),n=net(s),p=s.payId&&db.pays.find(function(x){return x.id===s.payId});
+  R.push([s.date,o.name,(s.start||'')+(s.end?' - '+s.end:''),r2(hw(s)),r2(wageOn(off(s.office)||{wage:0},s.date)),r2(g),r2(a.t),r2(a.c),r2(a.e),r2(a.o),r2(n),s.payId?'Yes':'No',p?p.date:'',s.note||'']);
+  var q=per[s.office]=per[s.office]||{n:o.name,h:0,g:0,t:0,c:0,e:0,o:0,net:0,un:0};q.h+=hw(s);q.g+=g;q.t+=a.t;q.c+=a.c;q.e+=a.e;q.o+=a.o;q.net+=n;if(!s.payId)q.un+=n;
+  T[0]+=hw(s);T[1]+=g;T[2]+=a.t;T[3]+=a.c;T[4]+=a.e;T[5]+=a.o;T[6]+=n});
+ R.push(['TOTAL','','',r2(T[0]),'',r2(T[1]),r2(T[2]),r2(T[3]),r2(T[4]),r2(T[5]),r2(T[6]),'','','']);
+ var pays=db.pays.filter(function(p){return inY(p.date)}).sort(function(a,b){return a.date<b.date?-1:1}),P=[['Date recorded','Office','Amount received','Shifts covered']],S=[['Office','Hours','Gross pay','Income tax','CPP','EI','Other deductions','Net pay','Payments received','Net of shifts not yet paid']];
+ pays.forEach(function(p){P.push([p.date,(off(p.office)||{name:'?'}).name,r2(+p.amt),db.shifts.filter(function(s){return s.payId===p.id}).sort(function(a,b){return a.date<b.date?-1:1}).map(function(s){return s.date}).join(', ')])});
+ Object.keys(per).forEach(function(k){var q=per[k];S.push([q.n,r2(q.h),r2(q.g),r2(q.t),r2(q.c),r2(q.e),r2(q.o),r2(q.net),r2(pays.filter(function(p){return p.office===k}).reduce(function(a,p){return a+ +p.amt},0)),r2(q.un)])});
+ return{sh:R,pay:P,sum:S}}
+function deliver(blob,name){var f=new File([blob],name,{type:blob.type});
+ if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],title:name}).catch(function(){})}
+ else{var a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){a.remove()},500)}}
+function exportX(){loadX(function(){if(!window.XLSX){exNote('Excel export needs an internet connection the first time. Please try again.');return}
+ var d=exData(),wb=XLSX.utils.book_new();[['Summary',d.sum],['Shifts',d.sh],['Payments',d.pay]].forEach(function(p){var ws=XLSX.utils.aoa_to_sheet(p[1]);ws['!cols']=p[1][0].map(function(){return{wch:16}});XLSX.utils.book_append_sheet(wb,ws,p[0])});
+ deliver(new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'shifts-'+exYear+'.xlsx')})}
+function pe(t){return String(t).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\x20-\x7e]/g,'?').replace(/([\\()])/g,'\\$1')}
+function pdfMake(lines){var per=48,pages=[];for(var i=0;i<lines.length;i+=per)pages.push(lines.slice(i,i+per));if(!pages.length)pages=[[]];
+ var o=[];o[1]='<< /Type /Catalog /Pages 2 0 R >>';o[2]='<< /Type /Pages /Kids ['+pages.map(function(_,i){return(5+i*2)+' 0 R'}).join(' ')+'] /Count '+pages.length+' >>';
+ o[3]='<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>';o[4]='<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>';
+ pages.forEach(function(pg,i){var c=pg.map(function(l,j){return'BT /'+(l.b?'F2':'F1')+' 8 Tf 36 '+(576-j*11)+' Td ('+pe(l.t)+') Tj ET'}).join('\n');
+  o[5+i*2]='<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+(6+i*2)+' 0 R >>';o[6+i*2]='<< /Length '+c.length+' >>\nstream\n'+c+'\nendstream'});
+ var out='%PDF-1.4\n',of=[];for(var k=1;k<o.length;k++){of[k]=out.length;out+=k+' 0 obj\n'+o[k]+'\nendobj\n'}
+ var x=out.length;out+='xref\n0 '+o.length+'\n0000000000 65535 f \n'+of.slice(1).map(function(v){return('0000000000'+v).slice(-10)+' 00000 n \n'}).join('')+'trailer\n<< /Size '+o.length+' /Root 1 0 R >>\nstartxref\n'+x+'\n%%EOF';
+ var u=new Uint8Array(out.length);for(var q=0;q<out.length;q++)u[q]=out.charCodeAt(q)&255;return u}
+function exportP(){var d=exData(),L=[];
+ function fr(r,w,a){return r.map(function(c,i){c=String(c==null?'':c).slice(0,w[i]);var p=' '.repeat(Math.max(0,w[i]-c.length));return a[i]==='r'?p+c:c+p}).join(' ')}
+ function tb(head,rows,w,a,idx){L.push({t:fr(head,w,a),b:1});rows.forEach(function(r){var v=idx?idx.map(function(i){return r[i]}):r;L.push({t:fr(v,w,a),b:r[0]==='TOTAL'})});L.push({t:''})}
+ L.push({t:'Shift & Pay Report - '+(exYear==='all'?'All years':exYear),b:1});L.push({t:'Generated '+today()+'. Worked shifts only; deductions are estimates from the rates set in the app.'});L.push({t:''});
+ L.push({t:'SUMMARY BY OFFICE',b:1});tb(['Office','Hours','Gross','IncTax','CPP','EI','Other','Net','Received','Unpaid'],d.sum.slice(1),[18,7,10,9,8,8,8,10,10,10],['l','r','r','r','r','r','r','r','r','r']);
+ L.push({t:'SHIFTS',b:1});tb(['Date','Office','Time','Hrs','Gross','IncTax','CPP','EI','Other','Net','Paid'],d.sh.slice(1),[10,14,13,6,9,8,7,6,7,9,4],['l','l','l','r','r','r','r','r','r','r','l'],[0,1,2,3,5,6,7,8,9,10,11]);
+ L.push({t:'PAYMENTS',b:1});tb(['Recorded','Office','Amount','Shifts covered'],d.pay.slice(1),[10,18,10,60],['l','l','r','l']);
+ deliver(new Blob([pdfMake(L)],{type:'application/pdf'}),'shifts-'+exYear+'.pdf')}
+var addOpen=false;
+function opts(v){return db.offices.map(function(o){return'<option value="'+o.id+'"'+(o.id===v?' selected':'')+'>'+esc(o.name)+'</option>'}).join('')}
+function setSh(id,f,v){var s=db.shifts.find(function(x){return x.id===id});if(!s)return;s[f]=v;if(s.start&&s.end){var a=s.start.split(':'),b=s.end.split(':'),h=((+b[0]*60+ +b[1])-(+a[0]*60+ +a[1]))/60;if(h>0)s.hours=Math.round(h*100)/100}save();render()}
+function payWarn(s){var p=db.pays.find(function(x){return x.id===s.payId}),n=db.shifts.filter(function(x){return x.payId===s.payId}).length;return'⚠️ This shift is already recorded as paid'+(p?' ('+m(+p.amt)+(n>1?', shared with '+(n-1)+' other shift'+(n>2?'s':''):'')+')':'')+'. Tap Delete? again to remove it from that payment'+(n>1?'.':' and delete the payment.')}
+function eRow(s){var past=s.date<=today(),i=s.id;
+ return'<div class="card" style="'+tint(s.office)+'"><label style="margin-top:0">Office</label><select onchange="setSh(\''+i+'\',\'office\',this.value)">'+opts(s.office)+'</select><div class="row"><div class="col"><label>Start</label><input type="time" value="'+(s.start||'09:00')+'" onchange="setSh(\''+i+'\',\'start\',this.value)"></div><div class="col"><label>End</label><input type="time" value="'+(s.end||'')+'" onchange="setSh(\''+i+'\',\'end\',this.value)"></div></div>'+
+  (past&&s.actual==null?'<button class="g full" style="margin-top:8px;min-height:48px" onclick="okH(\''+i+'\')">✓ Worked '+s.hours+' h as planned</button>':'')+(past?'<label>Hours actually worked</label><input type="number" step="0.25" inputmode="decimal" placeholder="'+s.hours+'" value="'+(s.actual!=null?s.actual:'')+'" onchange="setAct(\''+i+'\',this.value)">':'')+
+  '<input style="margin-top:8px" placeholder="Tap to add a comment…" value="'+esc(s.note||'')+'" onchange="setNote(\''+i+'\',this.value)">'+(armed==='s'+i&&s.payId?'<div style="color:var(--bad);font-weight:600;margin-top:8px">'+payWarn(s)+'</div>':'')+
+  '<div class="row sp" style="margin-top:8px"><button class="g" style="min-height:48px;font-size:18px" onclick="calOne(\''+i+'\')">📅</button>'+xb('s',i)+'</div></div>'}
+function pickDay(ds){selDay=ds;addOpen=!db.shifts.some(function(s){return s.date===ds});render()}
+function modal(){var l=db.shifts.filter(function(s){return s.date===selDay}),show=!l.length||addOpen;
+ var h='<div style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20;display:flex;align-items:flex-end;justify-content:center" onclick="if(event.target===this)closeDay()"><div style="background:var(--bg);color:var(--tx);width:100%;max-width:560px;max-height:90%;overflow:auto;border-radius:18px 18px 0 0;padding:14px 14px calc(18px + env(safe-area-inset-bottom,0px))"><b style="font-size:18px;display:block;margin-bottom:8px">'+fd(selDay)+'</b>'+l.map(eRow).join('');
+ if(l.length&&!addOpen)h+='<button class="g full" style="margin:0 0 10px;min-height:52px" onclick="addOpen=true;render()">+ Add second shift</button>';
+ if(show)h+='<div class="card"><b>'+(l.length?'Add second shift':'Add a shift')+'</b><label>Office</label><select id="so">'+db.offices.map(function(o){return'<option value="'+o.id+'"'+(o.id===lastO?' selected':'')+'>'+esc(o.name)+'</option>'}).join('')+'</select><div class="row"><div class="col"><label>Start</label><input type="time" id="st" value="'+lastSt+'"></div><div class="col"><label>End</label><input type="time" id="et" value="'+lastEn+'"></div></div></div>';
+ return h+'<div class="row" style="position:sticky;bottom:0;background:var(--bg);padding-top:8px;flex-wrap:nowrap">'+(show?'<button id="cf" style="flex:2;min-height:52px" onclick="addDay()">Confirm</button>':'')+'<button class="g" style="flex:1;min-height:52px" onclick="closeDay()">Close</button></div></div></div>'}
+function dayTxt(dl){if(!dl.length)return'<small>&nbsp;</small>';var cm=codes();
+ return dl.slice().sort(function(a,b){return(a.start||'')<(b.start||'')?-1:1}).map(function(s){var st=s.start||'09:00';return'<small style="color:var(--tx);font-size:9.5px;line-height:1.15;margin-top:2px"><b>'+esc(cm[s.office]||'?')+'</b><br>'+ct(st)+(s.end?'-'+ct(s.end):'')+(s.actual!=null?'<br>✓'+r2(s.actual)+'h':'')+'</small>'}).join('')}
+function pCard(s){var on=sel[s.id],o=off(s.office)||{deds:[]},g=gross(s),dt=(o.deds||[]).filter(function(d){return d.on&&+d.rate>0}).map(function(d,i){return esc(d.n||'Other')+' −'+m(g*d.rate/100)}).join(' · ');
+ return'<div class="card" style="padding:8px;margin:6px 0 0;'+tint(s.office)+(on?';outline:3px solid var(--ac)':'')+'"><button class="g" style="width:100%;display:flex;justify-content:space-between;min-height:44px" onclick="tg(\''+s.id+'\')"><span>'+(on?'✓ ':'')+fd(s.date)+'</span><span>Expected '+s.hours+' h</span></button>'+
+  '<div class="row" style="flex-wrap:nowrap;margin-top:6px"><span>Worked</span><input type="number" step="0.25" inputmode="decimal" style="width:84px" placeholder="'+s.hours+'" value="'+(s.actual!=null?s.actual:'')+'" onchange="setAct(\''+s.id+'\',this.value)"><span>h @ '+m(wageOn(off(s.office)||{wage:0},s.date))+'/h</span></div>'+
+  '<div class="row sp" style="margin-top:6px"><span>Expected pay</span><b>'+m(net(s))+'</b></div><details><summary class="mu" style="padding:6px 0">Deductions</summary><div class="mu">Gross '+m(g)+(dt?' · '+dt:'')+'</div></details></div>'}
+function vPay(){
+ if(!db.offices.length)return'<h1>Payments</h1>'+noOff();
+ var h='<h1>Payments</h1><p class="mu">Tick the shifts paid together, enter the hours actually worked, then record what was received.</p>';
+ db.offices.forEach(function(o){
+  var l=unpaid(o.id),ch=l.filter(function(s){return sel[s.id]}),exp=ch.reduce(function(a,s){return a+net(s)},0),owed=l.reduce(function(a,s){return a+net(s)},0);
+  h+='<div class="card" style="'+tint(o.id)+'"><div class="row sp"><b>'+esc(o.name)+'</b><span class="mu">Expected unpaid '+m(owed)+'</span></div>';
+  if(!l.length)h+='<p class="mu">All worked shifts are paid ✓</p>';
+  else{h+=(o.perShift?'':'<button class="g full" style="margin-top:8px" onclick="selAll(\''+o.id+'\')">Select all / none</button>')+l.map(pCard).join('');
+   if(ch.length)h+='<div style="margin-top:12px"><div class="mu">'+ch.length+' shift'+(ch.length>1?'s':'')+' ticked · expected '+m(exp)+'</div><label>Payment received ($)</label><div class="row" style="flex-wrap:nowrap"><input id="amt'+o.id+'" type="number" step="0.01" inputmode="decimal" value="'+exp.toFixed(2)+'" style="flex:1;min-width:0"><button id="rp'+o.id+'" style="min-height:48px" onclick="recPay(\''+o.id+'\')">Record payment</button></div></div>'}
+  h+='</div>'});
+ var l=db.pays.slice().sort(function(a,b){return a.date<b.date?1:-1});
+ return h+'<h2>Payment history</h2>'+(l.map(function(p){var ds=db.shifts.filter(function(s){return s.payId===p.id}).map(function(s){return short(s.date)}).join(', ');return'<div class="card row sp" style="flex-wrap:nowrap;'+tint(p.office)+'"><div style="flex:1;min-width:0"><b>'+(ds||'Payment')+'</b><div class="mu">'+m(+p.amt)+' received · recorded '+short(p.date)+' · '+esc((off(p.office)||{name:'?'}).name)+'</div></div><div class="row" style="flex-shrink:0;flex-wrap:nowrap"><button class="g" style="min-height:48px;font-size:18px" onclick="editP(\''+p.id+'\')">✏️</button>'+xb('p',p.id)+'</div></div>'}).join('')||'<p class="mu">No payments logged.</p>');
+}
+function okH(id){var s=db.shifts.find(function(x){return x.id===id});if(s){s.actual=s.hours;save();render()}}
+function payOne(id){var s=db.shifts.find(function(x){return x.id===id}),a=parseFloat($('sa'+id).value);if(!s||!(a>0))return;var pid=uid();db.pays.push({id:pid,office:s.office,date:today(),amt:a});s.payId=pid;if(s.actual==null)s.actual=s.hours;save();render()}
+function pCard(s){var o=off(s.office)||{deds:[],wage:0},ps=o.perShift,on=sel[s.id],g=gross(s),ok=s.actual!=null,
+ dt=(o.deds||[]).filter(function(d){return d.on&&+d.rate>0}).map(function(d){return esc(d.n||'Other')+' −'+m(g*d.rate/100)}).join(' · ');
+ return'<div class="card" style="padding:8px;margin:6px 0 0;'+tint(s.office)+(on&&!ps?';outline:3px solid var(--ac)':'')+'">'+
+  (ps?'<div class="row sp" style="min-height:40px;padding:0 4px"><b>'+fd(s.date)+'</b><span class="mu">Expected '+s.hours+' h</span></div>':'<button class="g" style="width:100%;display:flex;justify-content:space-between;min-height:44px" onclick="tg(\''+s.id+'\')"><span>'+(on?'✓ ':'')+fd(s.date)+'</span><span>Expected '+s.hours+' h</span></button>')+
+  '<div class="row" style="flex-wrap:nowrap;margin-top:6px">'+(ok?'<span class="ok" style="flex:1;font-weight:600">✓ Worked</span>':'<button class="g" style="flex:1;min-height:44px" onclick="okH(\''+s.id+'\')">✓ Worked '+s.hours+' h as planned</button>')+'<input type="number" step="0.25" inputmode="decimal" style="width:84px" placeholder="'+s.hours+'" value="'+(ok?s.actual:'')+'" onchange="setAct(\''+s.id+'\',this.value)"><span>h</span></div>'+
+  '<div class="row sp" style="margin-top:6px"><span class="mu">@ '+m(wageOn(o,s.date))+'/h</span><span>Expected pay <b>'+m(net(s))+'</b></span></div><details><summary class="mu" style="padding:6px 0">Deductions</summary><div class="mu">Gross '+m(g)+(dt?' · '+dt:'')+'</div></details>'+
+  (ps?'<div class="row" style="flex-wrap:nowrap;margin-top:4px"><input id="sa'+s.id+'" type="number" step="0.01" inputmode="decimal" placeholder="Received" value="'+net(s).toFixed(2)+'" style="flex:1;min-width:0"><button style="min-height:48px;min-width:90px" onclick="payOne(\''+s.id+'\')">Paid</button></div>':'')+'</div>'}
+render();
+</script></body></html>
