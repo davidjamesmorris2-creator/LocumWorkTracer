@@ -44,7 +44,7 @@ function today(){return new Date().toLocaleDateString('en-CA')}
 function off(id){return db.offices.find(function(o){return o.id===id})}
 function wageOn(o,d){var w=+o.wage,best='';(o.raises||[]).forEach(function(r){if(r.date<=d&&r.date>=best){best=r.date;w=+r.wage}});return w}
 function dedPct(o){return(o.deds||[]).reduce(function(a,d){return a+(d.on?+d.rate:0)},0)}
-function gross(s){var o=off(s.office);return o?hw(s)*wageOn(o,s.date):0}
+function gross(s){var o=off(s.office);return o?hw(s)*wageOn(o,s.date)*(1+(+o.vac||0)/100):0}
 function net(s){var o=off(s.office);return o?gross(s)*(1-dedPct(o)/100):0}
 function fd(d){return new Date(d+'T12:00').toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})}
 var PT={biweekly:'Paid biweekly',office:'Cheque in office',cash:'Cash (no deductions)'};
@@ -129,7 +129,7 @@ function offForm(){
  var o=off(edit);
  var h='<h1>'+(o.isNew?'New office':'Edit office')+'</h1><div class="card"><label>Office name</label><input id="on" value="'+esc(o.name)+'">'+
  '<label>Hourly wage ($)</label><input id="ow" type="number" step="0.01" inputmode="decimal" value="'+o.wage+'">'+
- '<label>How she is paid</label><select id="op" onchange="payChg()">'+Object.keys(PT).map(function(k){return'<option value="'+k+'"'+(k===o.pay?' selected':'')+'>'+PT[k]+'</option>'}).join('')+'</select>'+
+ '<label>Vacation pay (% added on top of wage, 0 if none)</label><input id="ov" type="number" step="0.01" inputmode="decimal" placeholder="e.g. 4" value="'+(o.vac||'')+'"><label>How she is paid</label><select id="op" onchange="payChg()">'+Object.keys(PT).map(function(k){return'<option value="'+k+'"'+(k===o.pay?' selected':'')+'>'+PT[k]+'</option>'}).join('')+'</select>'+
  '<div class="row" style="margin-top:12px;flex-wrap:nowrap"><input type="checkbox" id="ps"'+(o.perShift?' checked':'')+'><span>Paid per shift (each shift gets its own payment)</span></div><label>Office colour</label>'+swHTML(o)+'<div style="display:none"><label>Pay period</label><select id="pp">'+[['biweekly','Every 2 weeks'],['weekly','Every week'],['monthly','Once a month']].map(function(x){return'<option value="'+x[0]+'"'+(x[0]===(o.per||'biweekly')?' selected':'')+'>'+x[1]+'</option>'}).join('')+'</select><label>A date a pay period started (any past one, not needed for monthly)</label><input type="date" id="pa0" value="'+(o.anchor||'')+'"></div>'+
  '<h2>Deductions taken off</h2><div class="mu">Tick what this office removes and adjust the %. Check her pay stub for the real rates.</div>';
  o.deds.forEach(function(d,i){h+='<div class="ded"><input type="checkbox" id="dc'+i+'"'+(d.on?' checked':'')+'>'+(i<3?'<span>'+esc(d.n)+'</span>':'<input id="dn'+i+'" placeholder="Other (e.g. benefits)" value="'+esc(d.n)+'">')+'<input id="dr'+i+'" type="number" step="0.01" value="'+d.rate+'" inputmode="decimal"></div>'});
@@ -141,7 +141,7 @@ function offForm(){
  return h;
 }
 function payChg(){if($('op').value==='cash'){off(edit).deds.forEach(function(_,i){$('dc'+i).checked=false})}}
-function collect(){var o=off(edit);o.name=$('on').value.trim()||'Office';o.wage=parseFloat($('ow').value)||0;o.color=$('oc').value;o.perShift=$('ps').checked;o.pay=$('op').value;o.per=$('pp').value;o.anchor=$('pa0').value;o.deds.forEach(function(d,i){d.on=$('dc'+i).checked;d.rate=parseFloat($('dr'+i).value)||0;if(i>=3)d.n=$('dn'+i).value})}
+function collect(){var o=off(edit);o.name=$('on').value.trim()||'Office';o.wage=parseFloat($('ow').value)||0;o.color=$('oc').value;o.perShift=$('ps').checked;o.vac=parseFloat($('ov').value)||0;o.pay=$('op').value;o.per=$('pp').value;o.anchor=$('pa0').value;o.deds.forEach(function(d,i){d.on=$('dc'+i).checked;d.rate=parseFloat($('dr'+i).value)||0;if(i>=3)d.n=$('dn'+i).value})}
 function saveOff(){collect();delete off(edit).isNew;save();edit=null;render()}
 function cancelOff(){var o=off(edit);if(o&&o.isNew)db.offices=db.offices.filter(function(x){return x!==o});edit=null;render()}
 function addRaise(){var w=parseFloat($('rw').value);if(!(w>0))return;collect();var o=off(edit);o.raises.push({date:$('rd').value,wage:w});save();render()}
@@ -369,7 +369,24 @@ function pCard(s){var o=off(s.office)||{deds:[],wage:0},ps=o.perShift,on=sel[s.i
  return'<div class="card" style="padding:8px;margin:6px 0 0;'+tint(s.office)+(on&&!ps?';outline:3px solid var(--ac)':'')+'">'+
   (ps?'<div class="row sp" style="min-height:40px;padding:0 4px"><b>'+fd(s.date)+'</b><span class="mu">Expected '+s.hours+' h</span></div>':'<button class="g" style="width:100%;display:flex;justify-content:space-between;min-height:44px" onclick="tg(\''+s.id+'\')"><span>'+(on?'✓ ':'')+fd(s.date)+'</span><span>Expected '+s.hours+' h</span></button>')+
   '<div class="row" style="flex-wrap:nowrap;margin-top:6px">'+(ok?'<span class="ok" style="flex:1;font-weight:600">✓ Worked</span>':'<button class="g" style="flex:1;min-height:44px" onclick="okH(\''+s.id+'\')">✓ Worked '+s.hours+' h as planned</button>')+'<input type="number" step="0.25" inputmode="decimal" style="width:84px" placeholder="'+s.hours+'" value="'+(ok?s.actual:'')+'" onchange="setAct(\''+s.id+'\',this.value)"><span>h</span></div>'+
-  '<div class="row sp" style="margin-top:6px"><span class="mu">@ '+m(wageOn(o,s.date))+'/h</span><span>Expected pay <b>'+m(net(s))+'</b></span></div><details><summary class="mu" style="padding:6px 0">Deductions</summary><div class="mu">Gross '+m(g)+(dt?' · '+dt:'')+'</div></details>'+
+  '<div class="row sp" style="margin-top:6px"><span class="mu">@ '+m(wageOn(o,s.date))+'/h'+(+o.vac?' + '+(+o.vac)+'% vacation':'')+'</span><span>Expected pay <b>'+m(net(s))+'</b></span></div><details><summary class="mu" style="padding:6px 0">Deductions</summary><div class="mu">Gross '+m(g)+(dt?' · '+dt:'')+'</div></details>'+
   (ps?'<div class="row" style="flex-wrap:nowrap;margin-top:4px"><input id="sa'+s.id+'" type="number" step="0.01" inputmode="decimal" placeholder="Received" value="'+net(s).toFixed(2)+'" style="flex:1;min-width:0"><button style="min-height:48px;min-width:90px" onclick="payOne(\''+s.id+'\')">Paid</button></div>':'')+'</div>'}
+function hm(n){var t=Math.round(n*60),h=Math.floor(t/60),mi=t%60;return h+'h'+(mi?' '+mi+'m':'')}
+function tsel(id,v,oc){var o='',has=false;if(!v)o+='<option value="">–</option>';
+ for(var h=5;h<24;h++)[0,15,30,45].forEach(function(mi){var val=p2(h)+':'+p2(mi);if(val===v)has=true;o+='<option value="'+val+'"'+(val===v?' selected':'')+'>'+(h%12||12)+':'+p2(mi)+(h>=12?' pm':' am')+'</option>'});
+ if(v&&!has)o='<option value="'+v+'" selected>'+v+'</option>'+o;
+ return'<select'+(id?' id="'+id+'"':'')+(oc?' onchange="'+oc+'"':'')+'>'+o+'</select>'}
+function conv(h){return h.replace(/<input type="time"(?: id="(\w+)")? value="([^"]*)"(?: onchange="([^"]*)")?>/g,function(_,id,v,oc){return tsel(id,v,oc)})}
+var _modal=modal;modal=function(){return conv(_modal())};
+function hmSel(v,fn,id){var t=v===''?null:Math.round(parseFloat(v)*60),h=t==null?'':Math.floor(t/60),mi=t==null?'':t%60,ho='<option value="">–</option>',mo=ho,i;
+ for(i=0;i<=14;i++)ho+='<option'+(h===i?' selected':'')+'>'+i+'</option>';for(i=0;i<60;i++)mo+='<option value="'+i+'"'+(mi===i?' selected':'')+'>'+p2(i)+'</option>';
+ var oc=' onchange="hmSet(\''+fn+'\',\''+id+'\',this.parentNode)"';
+ return'<span style="display:inline-flex;gap:4px;align-items:center"><select style="width:64px;padding:8px 4px"'+oc+'>'+ho+'</select>h<select style="width:68px;padding:8px 4px"'+oc+'>'+mo+'</select>m</span>'}
+function hmSet(fn,id,w){var s=w.querySelectorAll('select'),h=s[0].value,mi=s[1].value;window[fn](id,(h===''&&mi==='')?'':String((+h||0)+(+mi||0)/60))}
+function conv2(h){return h.replace(/<input type="number" step="0\.25"[^>]*?value="([^"]*)" onchange="(setActE?)\('([^']*)',this\.value\)">(?:<span>h<\/span>)?/g,function(_,v,fn,id){return hmSel(v,fn,id)})
+ .replace(/(\d+(?:\.\d+)?) h(?![a-zA-Z])/g,function(_,n){return hm(+n)}).replace(/✓(\d+(?:\.\d+)?)h/g,function(_,n){return'✓'+hm(+n)})}
+function render(){var t={sum:'Summary',shifts:'Calendar',pay:'Payments',off:'Offices'};
+ $('nav').innerHTML=Object.keys(t).map(function(k){return'<button class="'+(k===tab?'on':'')+'" onclick="setTab(\''+k+'\')">'+t[k]+'</button>'}).join('');
+ $('app').innerHTML=conv2(({sum:vSum,shifts:vShifts,pay:vPay,off:vOff})[tab]()+(tab==='shifts'&&selDay?modal():''))}
 render();
 </script></body></html>
