@@ -402,5 +402,36 @@ function showTh(){var b=$('th');if(b)b.textContent=effDark()?'☀️':'🌙'}
 function togTheme(){var t=effDark()?'light':'dark';document.documentElement.setAttribute('data-theme',t);try{localStorage.setItem('dentalpay-theme',t)}catch(e){}showTh()}
 try{var th0=localStorage.getItem('dentalpay-theme');if(th0)document.documentElement.setAttribute('data-theme',th0)}catch(e){}
 showTh();
+var bkArm=false;
+function bkSay(t){var e=$('bkm');if(e)e.textContent=t}
+function backupCard(){return'<div class="card"><b>Backup and restore</b><div class="mu">Everything is saved only in this browser. Copy a backup now and then and keep it in Notes.</div><button class="full" onclick="bkCopy()">Copy backup</button><label>Restore: paste a backup here</label><textarea id="bkt" rows="3" style="width:100%;font:inherit;padding:10px;border-radius:10px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)"></textarea><button class="g full" id="bkr" onclick="bkRestore()">Restore from pasted backup</button><div id="bkm" class="mu" style="margin-top:8px"></div></div>'}
+function bkCopy(){var t=JSON.stringify(db),b=$('bkt');b.value=t;
+ try{navigator.clipboard.writeText(t).then(function(){bkSay('Backup copied. Paste it into Notes to keep it safe.')},function(){b.select();bkSay('Could not copy automatically. The backup is in the box above: select all, copy, and paste it into Notes.')})}catch(e){b.select();bkSay('The backup is in the box above: select all, copy, and paste it into Notes.')}}
+function bkRestore(){var d;try{d=JSON.parse($('bkt').value)}catch(e){}
+ if(!d||!Array.isArray(d.offices)||!Array.isArray(d.shifts)||!Array.isArray(d.pays)){bkSay('That does not look like a backup. Paste the whole backup text and try again.');return}
+ if(!bkArm){bkArm=true;$('bkr').textContent='Tap again to replace all current data';return}
+ bkArm=false;db=d;save();edit=null;render()}
+var _vOff=vOff;vOff=function(){return edit?_vOff():_vOff()+backupCard()};
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
+var pendRestore=null;
+function bkLast(){try{return +localStorage.getItem('dentalpay-bk')||0}catch(e){return 0}}
+function backupCard(){var l=bkLast();
+ return'<div class="card"><b>Backup and restore</b><div class="mu">Everything is saved only in this browser. Save a backup file now and then.</div><div class="mu" style="margin-top:4px">'+(l?'Last backup: '+new Date(l).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}):'No backup saved yet.')+'</div>'+
+  '<button class="full" onclick="bkSave()">Save backup to Files</button>'+
+  '<label style="display:block;text-align:center;padding:12px 14px;border-radius:10px;background:var(--ac2);color:var(--tx);font-weight:600;font-size:16px;margin:12px 0 0">Load backup from Files<input type="file" accept=".json,.txt,application/json,text/plain" style="display:none" onchange="bkFile(this)"></label>'+
+  '<div id="bkm" class="mu" style="margin-top:10px"></div>'+
+  '<details style="margin-top:10px"><summary class="mu">Backup as text instead</summary><button class="g full" onclick="bkCopy()">Copy backup text</button><textarea id="bkt" rows="3" placeholder="Paste backup text here to restore" style="width:100%;margin-top:8px;font:inherit;padding:10px;border-radius:10px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)"></textarea><button class="g full" id="bkr" onclick="bkRestore()">Restore from pasted text</button></details></div>'}
+function bkSave(){var t=JSON.stringify(db),f=new File([t],'paytracker-backup-'+today()+'.json',{type:'application/json'});
+ if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],title:'Pay tracker backup'}).then(function(){try{localStorage.setItem('dentalpay-bk',String(Date.now()))}catch(e){}bkSay('Backup shared. Make sure you chose Save to Files.');render()}).catch(function(){})}
+ else{bkSay('This browser can’t save a file here. Use Backup as text below instead.')}}
+function bkFile(inp){var f=inp.files&&inp.files[0];if(!f)return;var r=new FileReader();r.onload=function(){var d;try{d=JSON.parse(r.result)}catch(e){}
+  if(!d||!Array.isArray(d.offices)||!Array.isArray(d.shifts)||!Array.isArray(d.pays)){pendRestore=null;bkSay('That file is not a pay tracker backup.');return}
+  pendRestore=d;var e=$('bkm');if(e)e.innerHTML='<b>Replace everything on this phone with this backup?</b><div>'+d.offices.length+' offices · '+d.shifts.length+' shifts · '+d.pays.length+' payments</div><div class="row" style="margin-top:8px;flex-wrap:nowrap"><button style="flex:2;min-height:48px" onclick="bkGo()">Yes, replace</button><button class="g" style="flex:1;min-height:48px" onclick="bkNo()">Cancel</button></div>'};
+ r.readAsText(f);inp.value=''}
+function bkGo(){if(!pendRestore)return;db=pendRestore;pendRestore=null;save();edit=null;render()}
+function bkNo(){pendRestore=null;bkSay('Cancelled. Nothing was changed.')}
+function bkNudge(){if(!db.shifts.length)return'';var l=bkLast(),d=l?(Date.now()-l)/864e5:999;if(d<14)return'';
+ return'<div class="card" style="border:2px solid var(--ac)"><b>Back up her data</b><div class="mu">'+(l?'Last backup was '+Math.floor(d)+' days ago.':'No backup saved yet.')+' It takes a few seconds.</div><button class="full" onclick="bkSave()">Save backup to Files</button></div>'}
+var _vSum2=vSum;vSum=function(){return bkNudge()+_vSum2()};
 render();
 </script></body></html>
